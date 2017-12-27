@@ -3,14 +3,11 @@
 //
 
 #include "Actions.hpp"
-#include "Client.hpp"
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <zconf.h>
 #include <pthread.h>
 #include <iostream>
 #include "json.hpp"
+#include "Server.hpp"
 using json = nlohmann::json;
 
 void stripNewline(char *s)
@@ -25,179 +22,165 @@ void stripNewline(char *s)
     }
 }
 
-void Actions::sendMessage(char *s, int uid)
+void Actions::sendMessageByName(const std::string &msg, const std::string &name)
 {
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
+    for (auto *i : Server::userList)
     {
-        if (ClientList::clients[i] != nullptr)
+        if (i->name == name)
         {
-            if (ClientList::clients[i]->uid != uid)
-            {
-                write(ClientList::clients[i]->connfd, s, strlen(s));
-            }
+            write(i->connfd, msg.c_str(), msg.length());
         }
     }
 }
 
-void Actions::sendMessageAll(char *s)
+void Actions::sendMessageAll(const std::string &msg)
 {
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
+    for (auto *i : Server::userList)
     {
-        if (ClientList::clients[i] != nullptr)
-        {
-            write(ClientList::clients[i]->connfd, s, strlen(s));
-        }
+        write(i->connfd, msg.c_str(), msg.length());
     }
 }
 
-void Actions::sendMessageSelf(const char *s, int connfd)
-{
-    write(connfd, s, strlen(s));
-}
 
-void Actions::sendMessageClient(char *s, int uid)
+void Actions::sendMessageByConnfd(const std::string &msg, int connfd)
 {
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (ClientList::clients[i] != nullptr)
-        {
-            if (ClientList::clients[i]->uid == uid)
-            {
-                write(ClientList::clients[i]->connfd, s, strlen(s));
-            }
-        }
-    }
-}
-
-void Actions::sendActiveClients(int connfd)
-{
-    int i;
-    char s[64];
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (ClientList::clients[i] != nullptr)
-        {
-            sprintf(s, "<<CLIENT %d | %s\r\n", ClientList::clients[i]->uid, ClientList::clients[i]->name);
-            sendMessageSelf(s, connfd);
-        }
-    }
+    write(connfd, msg.c_str(), msg.length());
 }
 
 void *Actions::handleClient(void *arg)
 {
     auto *actions = new Actions();
-    char buff_out[1024];
+    std::string buff_out;
     char buff_in[1024];
-    int rlen;
+    ssize_t rlen;
 
-    cli_count++;
-    auto *cli = (Client *) arg;
+    auto connfd = *((int *) arg);
 
-    printf("ACCEPT ");
-    cli->printAddress();
-    printf(" REFERENCED BY %d\n", cli->uid);
-
-    sprintf(buff_out, "HELLO %s\r\n", cli->name);
-    actions->sendMessageAll(buff_out);
+    std::cout << "ACCEPT, connfd id = " << connfd << "\n";
+    buff_out = "HELLO\r\n";
+    actions->sendMessageByConnfd(buff_out, connfd);
 
     /* Receive input from client */
-    while ((rlen = read(cli->connfd, buff_in, sizeof(buff_in) - 1)) > 0)
+    while ((rlen = read(connfd, buff_in, sizeof(buff_in) - 1)) > 0)
     {
         buff_in[rlen] = '\0';
         buff_out[0] = '\0';
         stripNewline(buff_in);
-        if (!strlen(buff_in))
+        if (strlen(buff_in) == 0u)
         {
             continue;
         }
 
         auto msg = json::parse(buff_in);
         auto cmd = msg["cmd"];
-        char *param;
         std::cout << cmd << std::endl;
         if (cmd == "quit")
         {
+            actions->handleQuit(connfd);
             break;
-        } else if (cmd == "ping")
+        }
+        if (cmd == "login")
         {
-            actions->sendMessageSelf("<<PONG\r\n", cli->connfd);
-        } else if (cmd == "name")
+            actions->handleLogin(connfd, msg["username"], msg["password"]);
+        } else if (cmd == "search")
         {
-            param = strtok(nullptr, " ");
-            if (param)
-            {
-                char *old_name = strdup(cli->name);
-                strcpy(cli->name, param);
-                sprintf(buff_out, "<<RENAME, %s TO %s\r\n", old_name, cli->name);
-                free(old_name);
-                actions->sendMessageAll(buff_out);
-            } else
-            {
-                actions->sendMessageSelf("<<NAME CANNOT BE nullptr\r\n", cli->connfd);
-            }
-        } else if (cmd == "private")
+            actions->handleSearch(connfd);
+        } else if (cmd == "add")
         {
-            param = strtok(nullptr, " ");
-            if (param)
-            {
-                int uid = atoi(param);
-                param = strtok(nullptr, " ");
-                if (param)
-                {
-                    sprintf(buff_out, "[PM][%s]", cli->name);
-                    while (param != nullptr)
-                    {
-                        strcat(buff_out, " ");
-                        strcat(buff_out, param);
-                        param = strtok(nullptr, " ");
-                    }
-                    strcat(buff_out, "\r\n");
-                    actions->sendMessageClient(buff_out, uid);
-                } else
-                {
-                    actions->sendMessageSelf("<<MESSAGE CANNOT BE nullptr\r\n", cli->connfd);
-                }
-            } else
-            {
-                actions->sendMessageSelf("<<REFERENCE CANNOT BE nullptr\r\n", cli->connfd);
-            }
-        } else if (cmd == "active")
+            actions->sendMessageByConnfd("<< RECEIVE ADD\r\n", connfd);
+        } else if (cmd == "ls")
         {
-            sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
-            actions->sendMessageSelf(buff_out, cli->connfd);
-            actions->sendActiveClients(cli->connfd);
-        } else if (cmd == "help")
+            actions->sendMessageByConnfd("<< RECEIVE LS\r\n", connfd);
+        } else if (cmd == "chat")
         {
-            strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
-            strcat(buff_out, "\\PING     Server test\r\n");
-            strcat(buff_out, "\\NAME     <name> Change nickname\r\n");
-            strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
-            strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
-            strcat(buff_out, "\\HELP     Show help\r\n");
-            actions->sendMessageSelf(buff_out, cli->connfd);
-        } else
+            actions->sendMessageByConnfd("<< RECEIVE CHAT\r\n", connfd);
+        } else if (cmd == "sendmsg")
         {
-            actions->sendMessageSelf("<<UNKOWN COMMAND\r\n", cli->connfd);
+            actions->sendMessageByConnfd("<< RECEIVE SENDMSG\r\n", connfd);
+        } else if (cmd == "sendfile")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE SENDFILE\r\n", connfd);
+        } else if (cmd == "exit")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE EXIT\r\n", connfd);
+        } else if (cmd == "recvmsg")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE RECVMSG\r\n", connfd);
+        } else if (cmd == "recvfile")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE RECVFILE\r\n", connfd);
+        } else if (cmd == "profile")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE PROFILE\r\n", connfd);
+        } else if (cmd == "sync")
+        {
+            actions->sendMessageByConnfd("<< RECEIVE SYNC\r\n", connfd);
+        }
+        else
+        {
+            actions->sendMessageByConnfd("<< FUCK YOU!", connfd);
         }
     }
 
-    /* Close connection */
-    close(cli->connfd);
-    sprintf(buff_out, "<<LEAVE, BYE %s\r\n", cli->name);
-    actions->sendMessageAll(buff_out);
+    close(connfd);
+    buff_out += "LEAVE, BYE\r\n";
+    actions->sendMessageByConnfd(buff_out, connfd);
 
-    /* Delete client from queue and yeild thread */
-    ClientList::remove(cli->uid);
-    printf("<<LEAVE ");
-    cli->printAddress();
-    printf(" REFERENCED BY %d\n", cli->uid);
-    free(cli);
-    cli_count--;
+    std::cout << "LEAVE, connfd id = " << connfd << "\n";
     pthread_detach(pthread_self());
 
     return nullptr;
 }
+
+void Actions::handleSearch(int connfd)
+{
+    json result = json::object();
+    for (auto &i : Server::userList)
+    {
+        result[i->name] = (i->connfd != -1);
+    }
+    this->sendMessageByConnfd(result.dump(), connfd);
+}
+
+void Actions::handleLogin(int connfd, const std::string &name, const std::string &password)
+{
+    json result = json::object();
+    std::cout << "name : " << name << "\npassword : " << password << "\n";
+    bool exist = false;
+    for (auto &i : Server::userList)
+    {
+        if (i->name == name)
+        {
+            exist = true;
+            if (i->password == password)
+            {
+                result["status"] = "OK";
+            }
+            else
+            {
+                result["status"] = "FUCK";
+            }
+        }
+    }
+    if (!exist)
+    {
+        auto *user = new User(name, password);
+        user->connfd = connfd;
+        Server::addUser(user);
+        result["status"] = "OK";
+    }
+    sendMessageByConnfd(result.dump(), connfd);
+}
+
+void Actions::handleQuit(int connfd)
+{
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            i->connfd = -1;
+        }
+    }
+}
+
 

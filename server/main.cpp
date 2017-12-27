@@ -5,10 +5,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <pthread.h>
-#include "Client.hpp"
 #include "Actions.hpp"
-
-static int uid = 10;
 
 int main(int argc, char *argv[])
 {
@@ -48,28 +45,8 @@ int main(int argc, char *argv[])
         socklen_t clilen = sizeof(cli_addr);
         connfd = accept(listenfd, (struct sockaddr *) &cli_addr, &clilen);
 
-        /* Check if max clients is reached */
-        if ((cli_count + 1) == MAX_CLIENTS)
-        {
-            printf("<<MAX CLIENTS REACHED\n");
-            printf("<<REJECT ");
-            printf("\n");
-            close(connfd);
-            continue;
-        }
+        pthread_create(&tid, nullptr, &(Actions::handleClient), (void *) &connfd);
 
-        /* Client settings */
-        Client *cli = new Client;
-        cli->addr = cli_addr;
-        cli->connfd = connfd;
-        cli->uid = uid++;
-        sprintf(cli->name, "%d", cli->uid);
-
-        /* Add client to the queue and fork thread */
-        ClientList::add(cli);
-        pthread_create(&tid, nullptr, &(Actions::handleClient), (void *) cli);
-
-        /* Reduce CPU usage */
         sleep(1);
     }
 }
