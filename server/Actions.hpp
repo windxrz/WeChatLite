@@ -19,6 +19,12 @@ public:
     void handleQuit(int);
     void handleLogin(int, const std::string &, const std::string &);
     void handleSearch(int);
+    void handleAdd(int, const std::string &);
+    void handleLS(int);
+    void handleChat(int, const std::string &);
+    void handleSendMsg(int, const std::string &, const std::string &);
+    void handleRecvMsg(int);
+    void handleExit(int);
 };
 
 #endif //SERVER_ACTIONS_HPP

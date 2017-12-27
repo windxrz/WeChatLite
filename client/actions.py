@@ -9,12 +9,6 @@ dbx = dropbox.Dropbox(
 )
 
 
-def ping(s, line):
-    s.send(json.dumps({'cmd': 'ping'}).encode('utf-8'))
-    data = s.recv(1024).decode('utf-8')
-    print(data)
-
-
 def search(s, line):
     s.send(json.dumps({'cmd': 'search'}).encode('utf-8'))
     data = json.loads(s.recv(1024).decode('utf-8'))
@@ -68,12 +62,16 @@ def ls(s, line):
         print(user + (', ONLINE' if data[user] else ''))
 
 
+def sync(s, line):
+    print(info.SYNC)
+
+
 def recvmsg(s, line=""):
     s.send(json.dumps({'cmd': 'recvmsg'}).encode('utf-8'))
     data = json.loads(s.recv(1024).decode('utf-8'))
     print(info.RECVMSG)
-    for item in data['msg']:
-        print(info.MESSAGE % (item['friend'], item['msg']))
+    for friend in data['msg']:
+        print(info.MESSAGE % (friend, data['msg'][friend]))
 
 
 def recvfile(s, line=""):
@@ -164,7 +162,7 @@ def sendfile(s, friend, line):
 
 
 def exitchat(s, line=""):
-    s.send(b'{"cmd": "exitchat"}')
+    s.send(b'{"cmd": "exit"}')
 
 
 def profile(s, line):
@@ -175,23 +173,22 @@ def profile(s, line):
 commands = {
     'guest':
     {
-        'ping': ping,
         'search': search,
         'login': login,
         'quit': quit,
     },
     'user':
     {
-        'ping': ping,
         'search': search,
         'add': add,
         'ls': ls,
-        'sync': ls,
+        'sync': sync,
         'recvmsg': recvmsg,
         'recvfile': recvfile,
         'chat': chat,
-        'quit': quit,
+        'exit': exitchat,
         'profile': profile,
+        'quit': quit,
     },
     'chat':
     {

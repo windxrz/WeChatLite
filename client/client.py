@@ -13,7 +13,7 @@ PORT = int(args.port)
 def event_loop(s):
     logged_in = False
     while True:
-        line = input().strip()
+        line = input(">> ").strip()
         cmd = line.split()[0]
         mode = 'user' if logged_in else 'guest'
         try:
@@ -23,6 +23,7 @@ def event_loop(s):
         else:
             if cmd == 'quit':
                 break
+        print("")
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

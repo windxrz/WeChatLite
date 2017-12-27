@@ -28,7 +28,14 @@ void Actions::sendMessageByName(const std::string &msg, const std::string &name)
     {
         if (i->name == name)
         {
-            write(i->connfd, msg.c_str(), msg.length());
+            if (i->connfd != -1)
+            {
+                write(i->connfd, msg.c_str(), msg.length());
+            }
+            else
+            {
+                Server::addUnsentMsg(i->name, name, msg);
+            }
         }
     }
 }
@@ -41,10 +48,12 @@ void Actions::sendMessageAll(const std::string &msg)
     }
 }
 
-
 void Actions::sendMessageByConnfd(const std::string &msg, int connfd)
 {
-    write(connfd, msg.c_str(), msg.length());
+    if (connfd != -1)
+    {
+        write(connfd, msg.c_str(), msg.length());
+    }
 }
 
 void *Actions::handleClient(void *arg)
@@ -71,9 +80,10 @@ void *Actions::handleClient(void *arg)
             continue;
         }
 
+        std::cout << "$$" << buff_in << "$$\n";
         auto msg = json::parse(buff_in);
         auto cmd = msg["cmd"];
-        std::cout << cmd << std::endl;
+        std::cout << cmd << " " << connfd << std::endl;
         if (cmd == "quit")
         {
             actions->handleQuit(connfd);
@@ -87,38 +97,31 @@ void *Actions::handleClient(void *arg)
             actions->handleSearch(connfd);
         } else if (cmd == "add")
         {
-            actions->sendMessageByConnfd("<< RECEIVE ADD\r\n", connfd);
+            actions->handleAdd(connfd, msg["friend"]);
         } else if (cmd == "ls")
         {
-            actions->sendMessageByConnfd("<< RECEIVE LS\r\n", connfd);
+            actions->handleLS(connfd);
         } else if (cmd == "chat")
         {
-            actions->sendMessageByConnfd("<< RECEIVE CHAT\r\n", connfd);
+            actions->handleChat(connfd, msg["friend"]);
         } else if (cmd == "sendmsg")
         {
-            actions->sendMessageByConnfd("<< RECEIVE SENDMSG\r\n", connfd);
+            actions->handleSendMsg(connfd, msg["msg"], msg["friend"]);
         } else if (cmd == "sendfile")
         {
-            actions->sendMessageByConnfd("<< RECEIVE SENDFILE\r\n", connfd);
+            actions->sendMessageByConnfd("RECEIVE SENDFILE\r\n", connfd);
         } else if (cmd == "exit")
         {
-            actions->sendMessageByConnfd("<< RECEIVE EXIT\r\n", connfd);
+            actions->handleExit(connfd);
         } else if (cmd == "recvmsg")
         {
-            actions->sendMessageByConnfd("<< RECEIVE RECVMSG\r\n", connfd);
+            actions->handleRecvMsg(connfd);
         } else if (cmd == "recvfile")
         {
-            actions->sendMessageByConnfd("<< RECEIVE RECVFILE\r\n", connfd);
-        } else if (cmd == "profile")
+            actions->sendMessageByConnfd("RECEIVE RECVFILE\r\n", connfd);
+        } else
         {
-            actions->sendMessageByConnfd("<< RECEIVE PROFILE\r\n", connfd);
-        } else if (cmd == "sync")
-        {
-            actions->sendMessageByConnfd("<< RECEIVE SYNC\r\n", connfd);
-        }
-        else
-        {
-            actions->sendMessageByConnfd("<< FUCK YOU!", connfd);
+            actions->sendMessageByConnfd("FUCK YOU!", connfd);
         }
     }
 
@@ -145,7 +148,6 @@ void Actions::handleSearch(int connfd)
 void Actions::handleLogin(int connfd, const std::string &name, const std::string &password)
 {
     json result = json::object();
-    std::cout << "name : " << name << "\npassword : " << password << "\n";
     bool exist = false;
     for (auto &i : Server::userList)
     {
@@ -155,6 +157,7 @@ void Actions::handleLogin(int connfd, const std::string &name, const std::string
             if (i->password == password)
             {
                 result["status"] = "OK";
+                i->connfd = connfd;
             }
             else
             {
@@ -183,4 +186,155 @@ void Actions::handleQuit(int connfd)
     }
 }
 
+void Actions::handleAdd(int connfd, const std::string &name)
+{
+    json result = json::object();
+    bool exist = false;
+    for (auto &i : Server::userList)
+    {
+        if (i->name == name)
+        {
+            exist = true;
+            break;
+        }
+    }
+    if (!exist)
+    {
+        result["status"] = "FUCK";
+    }
+    else
+    {
+        for (auto &i : Server::userList)
+        {
+            if (i->connfd == connfd)
+            {
+                i->addFriend(name);
+            }
+        }
+        result["status"] = "OK";
+    }
+    sendMessageByConnfd(result.dump(), connfd);
+}
 
+void Actions::handleLS(int connfd)
+{
+    json result = json::object();
+    User *current = nullptr;
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            current = i;
+        }
+    }
+    for (auto &i : current->friends)
+    {
+        result[i] = false;
+        for (auto &j : Server::userList)
+        {
+            if (j->name == i && j->connfd != -1)
+            {
+                result[i] = true;
+            }
+        }
+    }
+    sendMessageByConnfd(result.dump(), connfd);
+}
+
+void Actions::handleChat(int connfd, const std::string &name)
+{
+    json result = json::object();
+    User *current = nullptr;
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            current = i;
+        }
+    }
+    result["status"] = "FUCK";
+    if (current != nullptr)
+    {
+        bool exist = false;
+        for (auto &i : current->friends)
+        {
+            if (i == name)
+            {
+                exist = true;
+                break;
+            }
+        }
+        if (exist)
+        {
+            current->current = name;
+            result["status"] = "OK";
+        }
+    }
+    sendMessageByConnfd(result.dump(), connfd);
+}
+
+void Actions::handleSendMsg(int connfd, const std::string &msg, const std::string &name)
+{
+    json result = json::object();
+    std::string src = "-----";
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            result["friend"] = i->name;
+            src = i->name;
+        }
+    }
+    bool chatting = false;
+    for (auto &i : Server::userList)
+    {
+        if (i->name == name && i->current == src)
+        {
+            chatting = true;
+            break;
+        }
+    }
+    if (chatting)
+    {
+        result["msg"] = msg;
+        sendMessageByName(result.dump(), name);
+    } else
+    {
+        Server::addUnsentMsg(name, src, msg);
+    }
+}
+
+void Actions::handleRecvMsg(int connfd)
+{
+    json result = json::object();
+    User* current = nullptr;
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            current = i;
+            break;
+        }
+    }
+    if (current != nullptr)
+    {
+        result["msg"] = current->unsentMsg;
+        std::cout << result.dump() << std::endl;
+        sendMessageByConnfd(result.dump(), connfd);
+        Server::resetUnsentMsg(current->name);
+    }
+}
+
+void Actions::handleExit(int connfd)
+{
+    json result = json::object();
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            i->current = "";
+        }
+    }
+    result["status"] = "FUCK";
+    sendMessageByConnfd(result.dump(), connfd);
+}

@@ -7,15 +7,22 @@
 
 #include <string>
 #include <vector>
+#include "json.hpp"
+using json = nlohmann::json;
 
 class User
 {
 public:
     std::string name, password;
-    std::string unsentMsg;
+    std::vector<std::string> friends;
     int connfd;
+    std::string current;
+    json unsentMsg;
+
     User();
     User(const std::string &, const std::string &);
+
+    void addFriend(const std::string &);
 };
 
 class Server
@@ -23,8 +30,8 @@ class Server
 public:
     static std::vector<User *> userList;
     static void addUser(User*);
-    static void addUnsentMsg(std::string, std::string);
-    static std::string getUnsentMsg(std::string);
+    static void addUnsentMsg(const std::string &, const std::string &, const std::string &);
+    static void resetUnsentMsg(const std::string &);
 };
 
 

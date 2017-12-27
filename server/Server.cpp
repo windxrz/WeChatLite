@@ -6,14 +6,21 @@
 
 User::User()
 {
-    this->unsentMsg = "";
+    friends.clear();
+    this->unsentMsg = json::object();
     this->connfd = -1;
+    this->current = "";
 }
 
 User::User(const std::string &name, const std::string &password) : User()
 {
     this->name = name;
     this->password = password;
+}
+
+void User::addFriend(const std::string &name)
+{
+    friends.push_back(name);
 }
 
 std::vector<User *> Server::userList;
@@ -23,28 +30,25 @@ void Server::addUser(User *user)
     Server::userList.push_back(user);
 }
 
-void Server::addUnsentMsg(std::string name, std::string msg)
+void Server::addUnsentMsg(const std::string &name, const std::string &src, const std::string &msg)
 {
     for (User *i : Server::userList)
     {
         if (i->name == name)
         {
-            i->unsentMsg += msg + "\r\n";
+            i->unsentMsg[src] += msg;
             break;
         }
     }
 }
 
-std::string Server::getUnsentMsg(std::string name)
+void Server::resetUnsentMsg(const std::string &name)
 {
     for (auto &i : userList)
     {
         if (i->name == name)
         {
-            std::string tmp = i->unsentMsg;
-            i->unsentMsg = "";
-            return tmp;
+            i->unsentMsg = json::object();
         }
     }
-    return "";
 }
