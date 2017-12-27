@@ -1,131 +1,16 @@
 //
 // Created by 徐韧喆 on 27/12/2017.
 //
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+
+#include "Actions.hpp"
+#include "Client.hpp"
 #include <cstdio>
 #include <cstdlib>
-#include <unistd.h>
 #include <cstring>
+#include <zconf.h>
 #include <pthread.h>
 
-
-#define MAX_CLIENTS    100
-
-static unsigned int cli_count = 0;
-static int uid = 10;
-
-/* Client structure */
-typedef struct
-{
-    struct sockaddr_in addr;    /* Client remote address */
-    int connfd;            /* Connection file descriptor */
-    int uid;            /* Client unique identifier */
-    char name[32];            /* Client name */
-} client_t;
-
-client_t *clients[MAX_CLIENTS];
-
-/* Add client to queue */
-void queue_add(client_t *cl)
-{
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (!clients[i])
-        {
-            clients[i] = cl;
-            return;
-        }
-    }
-}
-
-/* Delete client from queue */
-void queue_delete(int uid)
-{
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (clients[i])
-        {
-            if (clients[i]->uid == uid)
-            {
-                clients[i] = NULL;
-                return;
-            }
-        }
-    }
-}
-
-/* Send message to all clients but the sender */
-void send_message(char *s, int uid)
-{
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (clients[i])
-        {
-            if (clients[i]->uid != uid)
-            {
-                write(clients[i]->connfd, s, strlen(s));
-            }
-        }
-    }
-}
-
-/* Send message to all clients */
-void send_message_all(char *s)
-{
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (clients[i])
-        {
-            write(clients[i]->connfd, s, strlen(s));
-        }
-    }
-}
-
-/* Send message to sender */
-void send_message_self(const char *s, int connfd)
-{
-    write(connfd, s, strlen(s));
-}
-
-/* Send message to client */
-void send_message_client(char *s, int uid)
-{
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (clients[i])
-        {
-            if (clients[i]->uid == uid)
-            {
-                write(clients[i]->connfd, s, strlen(s));
-            }
-        }
-    }
-}
-
-/* Send list of active clients */
-void send_active_clients(int connfd)
-{
-    int i;
-    char s[64];
-    for (i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (clients[i])
-        {
-            sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
-            send_message_self(s, connfd);
-        }
-    }
-}
-
-/* Strip CRLF */
-void strip_newline(char *s)
+void stripNewline(char *s)
 {
     while (*s != '\0')
     {
@@ -137,39 +22,90 @@ void strip_newline(char *s)
     }
 }
 
-/* Print ip address */
-void print_client_addr(struct sockaddr_in addr)
+void Actions::sendMessage(char *s, int uid)
 {
-    printf("%d.%d.%d.%d",
-           addr.sin_addr.s_addr & 0xFF,
-           (addr.sin_addr.s_addr & 0xFF00) >> 8,
-           (addr.sin_addr.s_addr & 0xFF0000) >> 16,
-           (addr.sin_addr.s_addr & 0xFF000000) >> 24);
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i] != nullptr)
+        {
+            if (clients[i]->uid != uid)
+            {
+                write(clients[i]->connfd, s, strlen(s));
+            }
+        }
+    }
 }
 
-/* Handle all communication with the client */
-void *handle_client(void *arg)
+void Actions::sendMessageAll(char *s)
 {
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i] != nullptr)
+        {
+            write(clients[i]->connfd, s, strlen(s));
+        }
+    }
+}
+
+void Actions::sendMessageSelf(const char *s, int connfd)
+{
+    write(connfd, s, strlen(s));
+}
+
+void Actions::sendMessageClient(char *s, int uid)
+{
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i] != nullptr)
+        {
+            if (clients[i]->uid == uid)
+            {
+                write(clients[i]->connfd, s, strlen(s));
+            }
+        }
+    }
+}
+
+void Actions::sendActiveClients(int connfd)
+{
+    int i;
+    char s[64];
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i] != nullptr)
+        {
+            sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
+            sendMessageSelf(s, connfd);
+        }
+    }
+}
+
+void *Actions::handleClient(void *arg)
+{
+    auto *actions = new Actions();
     char buff_out[1024];
     char buff_in[1024];
     int rlen;
 
     cli_count++;
-    client_t *cli = (client_t *) arg;
+    auto *cli = (Client *) arg;
 
     printf("<<ACCEPT ");
-    print_client_addr(cli->addr);
+    cli->printAddress();
     printf(" REFERENCED BY %d\n", cli->uid);
 
-    sprintf(buff_out, "<<JOIN, HELLO %s\r\n", cli->name);
-    send_message_all(buff_out);
+    sprintf(buff_out, "HELLO %s\r\n", cli->name);
+    actions->sendMessageAll(buff_out);
 
     /* Receive input from client */
     while ((rlen = read(cli->connfd, buff_in, sizeof(buff_in) - 1)) > 0)
     {
         buff_in[rlen] = '\0';
         buff_out[0] = '\0';
-        strip_newline(buff_in);
+        stripNewline(buff_in);
 
         /* Ignore empty buffer */
         if (!strlen(buff_in))
@@ -187,52 +123,52 @@ void *handle_client(void *arg)
                 break;
             } else if (!strcmp(command, "\\PING"))
             {
-                send_message_self("<<PONG\r\n", cli->connfd);
+                actions->sendMessageSelf("<<PONG\r\n", cli->connfd);
             } else if (!strcmp(command, "\\NAME"))
             {
-                param = strtok(NULL, " ");
+                param = strtok(nullptr, " ");
                 if (param)
                 {
                     char *old_name = strdup(cli->name);
                     strcpy(cli->name, param);
                     sprintf(buff_out, "<<RENAME, %s TO %s\r\n", old_name, cli->name);
                     free(old_name);
-                    send_message_all(buff_out);
+                    actions->sendMessageAll(buff_out);
                 } else
                 {
-                    send_message_self("<<NAME CANNOT BE NULL\r\n", cli->connfd);
+                    actions->sendMessageSelf("<<NAME CANNOT BE nullptr\r\n", cli->connfd);
                 }
             } else if (!strcmp(command, "\\PRIVATE"))
             {
-                param = strtok(NULL, " ");
+                param = strtok(nullptr, " ");
                 if (param)
                 {
                     int uid = atoi(param);
-                    param = strtok(NULL, " ");
+                    param = strtok(nullptr, " ");
                     if (param)
                     {
                         sprintf(buff_out, "[PM][%s]", cli->name);
-                        while (param != NULL)
+                        while (param != nullptr)
                         {
                             strcat(buff_out, " ");
                             strcat(buff_out, param);
-                            param = strtok(NULL, " ");
+                            param = strtok(nullptr, " ");
                         }
                         strcat(buff_out, "\r\n");
-                        send_message_client(buff_out, uid);
+                        actions->sendMessageClient(buff_out, uid);
                     } else
                     {
-                        send_message_self("<<MESSAGE CANNOT BE NULL\r\n", cli->connfd);
+                        actions->sendMessageSelf("<<MESSAGE CANNOT BE nullptr\r\n", cli->connfd);
                     }
                 } else
                 {
-                    send_message_self("<<REFERENCE CANNOT BE NULL\r\n", cli->connfd);
+                    actions->sendMessageSelf("<<REFERENCE CANNOT BE nullptr\r\n", cli->connfd);
                 }
             } else if (!strcmp(command, "\\ACTIVE"))
             {
                 sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
-                send_message_self(buff_out, cli->connfd);
-                send_active_clients(cli->connfd);
+                actions->sendMessageSelf(buff_out, cli->connfd);
+                actions->sendActiveClients(cli->connfd);
             } else if (!strcmp(command, "\\HELP"))
             {
                 strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
@@ -241,32 +177,33 @@ void *handle_client(void *arg)
                 strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
                 strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
                 strcat(buff_out, "\\HELP     Show help\r\n");
-                send_message_self(buff_out, cli->connfd);
+                actions->sendMessageSelf(buff_out, cli->connfd);
             } else
             {
-                send_message_self("<<UNKOWN COMMAND\r\n", cli->connfd);
+                actions->sendMessageSelf("<<UNKOWN COMMAND\r\n", cli->connfd);
             }
         } else
         {
             /* Send message */
             sprintf(buff_out, "[%s] %s\r\n", cli->name, buff_in);
-            send_message(buff_out, cli->uid);
+            actions->sendMessage(buff_out, cli->uid);
         }
     }
 
     /* Close connection */
     close(cli->connfd);
     sprintf(buff_out, "<<LEAVE, BYE %s\r\n", cli->name);
-    send_message_all(buff_out);
+    actions->sendMessageAll(buff_out);
 
     /* Delete client from queue and yeild thread */
-    queue_delete(cli->uid);
+    queueDelete(cli->uid);
     printf("<<LEAVE ");
-    print_client_addr(cli->addr);
+    cli->printAddress();
     printf(" REFERENCED BY %d\n", cli->uid);
     free(cli);
     cli_count--;
     pthread_detach(pthread_self());
 
-    return NULL;
+    return nullptr;
 }
+

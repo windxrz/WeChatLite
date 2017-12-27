@@ -1,7 +1,6 @@
 import argparse
 import socket
 import info
-import actions
 from actions import commands
 
 parser = argparse.ArgumentParser()
@@ -25,6 +24,7 @@ def event_loop(s):
             if cmd == 'quit':
                 break
 
+
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     try:
         s.connect((HOST, PORT))
@@ -39,4 +39,3 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         except KeyboardInterrupt:
             print(info.DISCONNECT)
             commands['guest']['quit'](s)
-
