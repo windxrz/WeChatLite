@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
         sprintf(cli->name, "%d", cli->uid);
 
         /* Add client to the queue and fork thread */
-        queueAdd(cli);
+        ClientList::add(cli);
         pthread_create(&tid, nullptr, &(Actions::handleClient), (void *) cli);
 
         /* Reduce CPU usage */

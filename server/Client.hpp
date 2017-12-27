@@ -20,9 +20,12 @@ public:
 static unsigned int cli_count = 0;
 #define MAX_CLIENTS 100
 
-extern Client *clients[];
-
-void queueAdd(Client *cl);
-void queueDelete(int uid);
+class ClientList
+{
+public:
+    static Client *clients[];
+    static void add(Client *cl);
+    static void remove(int uid);
+};
 
 #endif

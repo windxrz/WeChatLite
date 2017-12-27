@@ -5,7 +5,6 @@
 #include <cstdio>
 #include "Client.hpp"
 
-Client *clients[MAX_CLIENTS];
 
 void Client::printAddress()
 {
@@ -16,7 +15,9 @@ void Client::printAddress()
            (addr.sin_addr.s_addr & 0xFF000000) >> 24);
 }
 
-void queueAdd(Client *cl)
+Client *ClientList::clients[MAX_CLIENTS];
+
+void ClientList::add(Client *cl)
 {
     int i;
     for (i = 0; i < MAX_CLIENTS; i++)
@@ -29,7 +30,7 @@ void queueAdd(Client *cl)
     }
 }
 
-void queueDelete(int uid)
+void ClientList::remove(int uid)
 {
     int i;
     for (i = 0; i < MAX_CLIENTS; i++)

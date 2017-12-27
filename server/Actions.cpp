@@ -9,6 +9,9 @@
 #include <cstring>
 #include <zconf.h>
 #include <pthread.h>
+#include <iostream>
+#include "json.hpp"
+using json = nlohmann::json;
 
 void stripNewline(char *s)
 {
@@ -27,11 +30,11 @@ void Actions::sendMessage(char *s, int uid)
     int i;
     for (i = 0; i < MAX_CLIENTS; i++)
     {
-        if (clients[i] != nullptr)
+        if (ClientList::clients[i] != nullptr)
         {
-            if (clients[i]->uid != uid)
+            if (ClientList::clients[i]->uid != uid)
             {
-                write(clients[i]->connfd, s, strlen(s));
+                write(ClientList::clients[i]->connfd, s, strlen(s));
             }
         }
     }
@@ -42,9 +45,9 @@ void Actions::sendMessageAll(char *s)
     int i;
     for (i = 0; i < MAX_CLIENTS; i++)
     {
-        if (clients[i] != nullptr)
+        if (ClientList::clients[i] != nullptr)
         {
-            write(clients[i]->connfd, s, strlen(s));
+            write(ClientList::clients[i]->connfd, s, strlen(s));
         }
     }
 }
@@ -59,11 +62,11 @@ void Actions::sendMessageClient(char *s, int uid)
     int i;
     for (i = 0; i < MAX_CLIENTS; i++)
     {
-        if (clients[i] != nullptr)
+        if (ClientList::clients[i] != nullptr)
         {
-            if (clients[i]->uid == uid)
+            if (ClientList::clients[i]->uid == uid)
             {
-                write(clients[i]->connfd, s, strlen(s));
+                write(ClientList::clients[i]->connfd, s, strlen(s));
             }
         }
     }
@@ -75,9 +78,9 @@ void Actions::sendActiveClients(int connfd)
     char s[64];
     for (i = 0; i < MAX_CLIENTS; i++)
     {
-        if (clients[i] != nullptr)
+        if (ClientList::clients[i] != nullptr)
         {
-            sprintf(s, "<<CLIENT %d | %s\r\n", clients[i]->uid, clients[i]->name);
+            sprintf(s, "<<CLIENT %d | %s\r\n", ClientList::clients[i]->uid, ClientList::clients[i]->name);
             sendMessageSelf(s, connfd);
         }
     }
@@ -93,7 +96,7 @@ void *Actions::handleClient(void *arg)
     cli_count++;
     auto *cli = (Client *) arg;
 
-    printf("<<ACCEPT ");
+    printf("ACCEPT ");
     cli->printAddress();
     printf(" REFERENCED BY %d\n", cli->uid);
 
@@ -106,87 +109,78 @@ void *Actions::handleClient(void *arg)
         buff_in[rlen] = '\0';
         buff_out[0] = '\0';
         stripNewline(buff_in);
-
-        /* Ignore empty buffer */
         if (!strlen(buff_in))
         {
             continue;
         }
 
-        /* Special options */
-        if (buff_in[0] == '\\')
+        auto msg = json::parse(buff_in);
+        auto cmd = msg["cmd"];
+        char *param;
+        std::cout << cmd << std::endl;
+        if (cmd == "quit")
         {
-            char *command, *param;
-            command = strtok(buff_in, " ");
-            if (!strcmp(command, "\\QUIT"))
+            break;
+        } else if (cmd == "ping")
+        {
+            actions->sendMessageSelf("<<PONG\r\n", cli->connfd);
+        } else if (cmd == "name")
+        {
+            param = strtok(nullptr, " ");
+            if (param)
             {
-                break;
-            } else if (!strcmp(command, "\\PING"))
-            {
-                actions->sendMessageSelf("<<PONG\r\n", cli->connfd);
-            } else if (!strcmp(command, "\\NAME"))
-            {
-                param = strtok(nullptr, " ");
-                if (param)
-                {
-                    char *old_name = strdup(cli->name);
-                    strcpy(cli->name, param);
-                    sprintf(buff_out, "<<RENAME, %s TO %s\r\n", old_name, cli->name);
-                    free(old_name);
-                    actions->sendMessageAll(buff_out);
-                } else
-                {
-                    actions->sendMessageSelf("<<NAME CANNOT BE nullptr\r\n", cli->connfd);
-                }
-            } else if (!strcmp(command, "\\PRIVATE"))
-            {
-                param = strtok(nullptr, " ");
-                if (param)
-                {
-                    int uid = atoi(param);
-                    param = strtok(nullptr, " ");
-                    if (param)
-                    {
-                        sprintf(buff_out, "[PM][%s]", cli->name);
-                        while (param != nullptr)
-                        {
-                            strcat(buff_out, " ");
-                            strcat(buff_out, param);
-                            param = strtok(nullptr, " ");
-                        }
-                        strcat(buff_out, "\r\n");
-                        actions->sendMessageClient(buff_out, uid);
-                    } else
-                    {
-                        actions->sendMessageSelf("<<MESSAGE CANNOT BE nullptr\r\n", cli->connfd);
-                    }
-                } else
-                {
-                    actions->sendMessageSelf("<<REFERENCE CANNOT BE nullptr\r\n", cli->connfd);
-                }
-            } else if (!strcmp(command, "\\ACTIVE"))
-            {
-                sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
-                actions->sendMessageSelf(buff_out, cli->connfd);
-                actions->sendActiveClients(cli->connfd);
-            } else if (!strcmp(command, "\\HELP"))
-            {
-                strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
-                strcat(buff_out, "\\PING     Server test\r\n");
-                strcat(buff_out, "\\NAME     <name> Change nickname\r\n");
-                strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
-                strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
-                strcat(buff_out, "\\HELP     Show help\r\n");
-                actions->sendMessageSelf(buff_out, cli->connfd);
+                char *old_name = strdup(cli->name);
+                strcpy(cli->name, param);
+                sprintf(buff_out, "<<RENAME, %s TO %s\r\n", old_name, cli->name);
+                free(old_name);
+                actions->sendMessageAll(buff_out);
             } else
             {
-                actions->sendMessageSelf("<<UNKOWN COMMAND\r\n", cli->connfd);
+                actions->sendMessageSelf("<<NAME CANNOT BE nullptr\r\n", cli->connfd);
             }
+        } else if (cmd == "private")
+        {
+            param = strtok(nullptr, " ");
+            if (param)
+            {
+                int uid = atoi(param);
+                param = strtok(nullptr, " ");
+                if (param)
+                {
+                    sprintf(buff_out, "[PM][%s]", cli->name);
+                    while (param != nullptr)
+                    {
+                        strcat(buff_out, " ");
+                        strcat(buff_out, param);
+                        param = strtok(nullptr, " ");
+                    }
+                    strcat(buff_out, "\r\n");
+                    actions->sendMessageClient(buff_out, uid);
+                } else
+                {
+                    actions->sendMessageSelf("<<MESSAGE CANNOT BE nullptr\r\n", cli->connfd);
+                }
+            } else
+            {
+                actions->sendMessageSelf("<<REFERENCE CANNOT BE nullptr\r\n", cli->connfd);
+            }
+        } else if (cmd == "active")
+        {
+            sprintf(buff_out, "<<CLIENTS %d\r\n", cli_count);
+            actions->sendMessageSelf(buff_out, cli->connfd);
+            actions->sendActiveClients(cli->connfd);
+        } else if (cmd == "help")
+        {
+            strcat(buff_out, "\\QUIT     Quit chatroom\r\n");
+            strcat(buff_out, "\\PING     Server test\r\n");
+            strcat(buff_out, "\\NAME     <name> Change nickname\r\n");
+            strcat(buff_out, "\\PRIVATE  <reference> <message> Send private message\r\n");
+            strcat(buff_out, "\\ACTIVE   Show active clients\r\n");
+            strcat(buff_out, "\\HELP     Show help\r\n");
+            actions->sendMessageSelf(buff_out, cli->connfd);
         } else
         {
-            /* Send message */
-            sprintf(buff_out, "[%s] %s\r\n", cli->name, buff_in);
-            actions->sendMessage(buff_out, cli->uid);
+            actions->sendMessageSelf("<<UNKOWN COMMAND\r\n", cli->connfd);
         }
     }
 
@@ -196,7 +190,7 @@ void *Actions::handleClient(void *arg)
     actions->sendMessageAll(buff_out);
 
     /* Delete client from queue and yeild thread */
-    queueDelete(cli->uid);
+    ClientList::remove(cli->uid);
     printf("<<LEAVE ");
     cli->printAddress();
     printf(" REFERENCED BY %d\n", cli->uid);
