@@ -7,6 +7,7 @@
 User::User()
 {
     friends.clear();
+    files.clear();
     this->unsentMsg = json::object();
     this->connfd = -1;
     this->current = "";
@@ -49,6 +50,17 @@ void Server::resetUnsentMsg(const std::string &name)
         if (i->name == name)
         {
             i->unsentMsg = json::object();
+        }
+    }
+}
+
+void Server::addFile(const std::string &name, File *file)
+{
+    for (auto &i : userList)
+    {
+        if (i->name == name)
+        {
+            i->files.push_back(file);
         }
     }
 }

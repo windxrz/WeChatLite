@@ -60,6 +60,7 @@ void *Actions::handleClient(void *arg)
 {
     auto *actions = new Actions();
     std::string buff_out;
+    std::string receivedFile = "";
     char buff_in[1024];
     ssize_t rlen;
 
@@ -80,7 +81,6 @@ void *Actions::handleClient(void *arg)
             continue;
         }
 
-        std::cout << "$$" << buff_in << "$$\n";
         auto msg = json::parse(buff_in);
         auto cmd = msg["cmd"];
         std::cout << cmd << " " << connfd << std::endl;
@@ -109,7 +109,7 @@ void *Actions::handleClient(void *arg)
             actions->handleSendMsg(connfd, msg["msg"], msg["friend"]);
         } else if (cmd == "sendfile")
         {
-            actions->sendMessageByConnfd("RECEIVE SENDFILE\r\n", connfd);
+            actions->handleSendFile(connfd, msg["filename"], msg["friend"]);
         } else if (cmd == "exit")
         {
             actions->handleExit(connfd);
@@ -118,7 +118,7 @@ void *Actions::handleClient(void *arg)
             actions->handleRecvMsg(connfd);
         } else if (cmd == "recvfile")
         {
-            actions->sendMessageByConnfd("RECEIVE RECVFILE\r\n", connfd);
+            actions->handleRecvFile(connfd);
         } else
         {
             actions->sendMessageByConnfd("FUCK YOU!", connfd);
@@ -337,4 +337,69 @@ void Actions::handleExit(int connfd)
     }
     result["status"] = "FUCK";
     sendMessageByConnfd(result.dump(), connfd);
+}
+
+void Actions::handleSendFile(int connfd, const std::string &filename, const std::string &name)
+{
+    sendMessageByConnfd("OK", connfd);
+    auto *buff = new char[1024 * 1024 * 100];
+    int l = 0;
+    char buff_in[1024];
+    ssize_t len;
+    while ((len = read(connfd, buff_in, sizeof(buff_in))) > 0)
+    {
+        sendMessageByConnfd("OK", connfd);
+        if (len == 1 && buff_in[0] == '~') break;
+        for (int i = 0; i < len; i++)
+        {
+            buff[l++] = buff_in[i];
+        }
+    }
+    Server::addFile(name, new File(l, filename, buff));
+}
+
+void Actions::handleRecvFile(int connfd)
+{
+    json result = json::object();
+    User *current = nullptr;
+    for (auto &i : Server::userList)
+    {
+        if (i->connfd == connfd)
+        {
+            current = i;
+            break;
+        }
+    }
+    char buff_in[1024];
+    if (current == nullptr)
+    {
+        result["status"] = "FUCK";
+        sendMessageByConnfd(result.dump(), connfd);
+        read(connfd, buff_in, 1023);
+    } else
+    {
+        for (auto &i : current->files)
+        {
+            result["status"] = "START";
+            result["filename"] = i->filename;
+            char tmp[100];
+            sprintf(tmp, "%d", i->length);
+            result["length"] = tmp;
+            std::cout << result << std::endl;
+            sendMessageByConnfd(result.dump(), connfd);
+            read(connfd, buff_in, 1023);
+            int j = 0;
+            while (j < (i->length - 1) / 1024 + 1)
+            {
+                auto l = static_cast<size_t>(i->length - j * 1024 > 1024 ? 1024 : (i->length - j * 1024));
+                write(connfd, i->content + j * 1024, l);
+                read(connfd, buff_in, 1023);
+                j++;
+            }
+        }
+        result["status"] = "FUCK";
+        sendMessageByConnfd(result.dump(), connfd);
+        read(connfd, buff_in, 1023);
+        current->files.clear();
+    }
 }

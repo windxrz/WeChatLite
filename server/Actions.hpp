@@ -25,6 +25,8 @@ public:
     void handleSendMsg(int, const std::string &, const std::string &);
     void handleRecvMsg(int);
     void handleExit(int);
+    void handleSendFile(int, const std::string &, const std::string &);
+    void handleRecvFile(int);
 };
 
 #endif //SERVER_ACTIONS_HPP

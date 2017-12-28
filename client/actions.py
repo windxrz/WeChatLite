@@ -3,10 +3,10 @@ import info
 import os
 import time
 import threading
-import dropbox
-dbx = dropbox.Dropbox(
-    'X5vzMUOqyzAAAAAAAAAAjlHk8HqJM8U07w8B9fDqDp9q03HQ8UhjRlBiGLarrRro'
-)
+from multiprocessing import Queue
+
+
+q = Queue()
 
 
 def search(s, line):
@@ -76,27 +76,41 @@ def recvmsg(s, line=""):
 
 def recvfile(s, line=""):
     s.send(json.dumps({'cmd': 'recvfile'}).encode('utf-8'))
-    data = json.loads(s.recv(1024).decode('utf-8'))
-    print(info.RECVFILE)
-    for item in data['files']:
-        print('Downloading file %s from %s' % (item['path'], item['friend']))
-        try:
-            dbx.files_download_to_file(
-                '/Users/cqb/Downloads/' + os.path.basename(item['path']),
-                item['path']
-            )
-            print('File saved successfully.')
-        except Exception:
-            print('Downloading failed.')
+    msg = s.recv(1024).decode('utf-8')
+    s.send("ok".encode('utf-8'))
+    data = json.loads(msg)
+    while data["status"] != "FUCK":
+        print(data)
+        filename = data["filename"]
+        length = int(data["length"])
+        with open("/Users/wind/Downloads/" + filename, 'wb') as f:
+            max = int((length - 1) / 1024 + 1)
+            print("max = " + str(max))
+            for i in range(0, max):
+                if i < max - 1:
+                    content = s.recv(1024)
+                else:
+                    content = s.recv(length - (max - 1) * 1024)
+                s.send("ok".encode('utf-8'))
+                f.write(content)
+            f.close()
+        print("Receive file %s successfully!" % filename)
+        msg = s.recv(1024).decode('utf-8')
+        s.send("ok".encode('utf-8'))
+        data = json.loads(msg)
 
 
 def chat_fetch_msg(s):
     while True:
-        msg = json.loads(s.recv(1024).decode('utf-8'))
-        if 'status' in msg:
-            break
+        msg = s.recv(1024).decode('utf-8')
+        if msg[0: 2] == "OK":
+            q.put("OK", block=False)
         else:
-            print(info.MESSAGE % (msg['friend'], msg['msg']))
+            msg = json.loads(msg)
+            if 'status' in msg:
+                break
+            else:
+                print(info.MESSAGE % (msg['friend'], msg['msg']))
 
 
 def chat(s, line):
@@ -140,23 +154,36 @@ def sendmsg(s, friend, line):
 
 
 def sendfile(s, friend, line):
+    global q
     try:
         data = {}
-        data['cmd'], file_path = line.split()
+        data['cmd'], filename = line.split()
         data['friend'] = friend
         try:
-            with open(file_path, 'rb') as f:
-                dbx_path = '/' + info.USERNAME +\
-                           '/' + os.path.basename(file_path)
-                print(dbx_path)
-                dbx.files_upload(f.read(), dbx_path, mode=dropbox.files.WriteMode('overwrite'))
-                print(dbx_path)
-                data['path'] = dbx_path
+            q = Queue()
+            with open("sending/" + filename, 'rb') as f:
+                data["filename"] = filename
+                s.send(json.dumps(data).encode('utf-8'))
+                while q.empty():
+                    pass
+                q.get(block=False)
+                result = f.read(1024)
+                i = 0
+                while result:
+                    print("sending " + str(i))
+                    s.send(result)
+                    while q.empty():
+                        pass
+                    q.get(block=False)
+                    result = f.read(1024)
+                    i = i + 1
+                s.send("~".encode("utf-8"))
+                while q.empty():
+                    pass
+                q.get(block=False)
+                print(filename + " sent!")
         except Exception:
             print(info.SENDFILE_UPLOAD_ERROR)
-        else:
-            print(info.SENDFILE_OK % data['path'])
-            s.send(json.dumps(data).encode('utf-8'))
     except ValueError:
         print(info.SENDFILE_ARG_ERROR)
 

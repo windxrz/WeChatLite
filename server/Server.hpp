@@ -10,11 +10,27 @@
 #include "json.hpp"
 using json = nlohmann::json;
 
+class File
+{
+public:
+    int length;
+    std::string filename;
+    char *content;
+
+    File(int length, std::string filename, char* content)
+    {
+        this->length = length;
+        this->filename = filename;
+        this->content = content;
+    }
+};
+
 class User
 {
 public:
     std::string name, password;
     std::vector<std::string> friends;
+    std::vector<File *> files;
     int connfd;
     std::string current;
     json unsentMsg;
@@ -31,6 +47,7 @@ public:
     static std::vector<User *> userList;
     static void addUser(User*);
     static void addUnsentMsg(const std::string &, const std::string &, const std::string &);
+    static void addFile(const std::string &, File *);
     static void resetUnsentMsg(const std::string &);
 };
 
