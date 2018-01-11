@@ -13,3 +13,5 @@ The files to send are in `/client/sending` directory. After typing in `recvfile`
 ### Commands
 This part is just as the requirement in `Requirement.pdf`.
 
+## Report
+This is the [report](https://github.com/xrz199721/WeChatLite/blob/master/Report.md).
